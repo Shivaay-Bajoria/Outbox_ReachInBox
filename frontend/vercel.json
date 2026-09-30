@@ -1,0 +1,16 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "outboxreachinbox-production.up.railway.app/api/:path*"
+        },
+        {
+            "source": "/admin/:path*",
+            "destination": "outboxreachinbox-production.up.railway.app/admin/:path*"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
