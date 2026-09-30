@@ -128,48 +128,11 @@ Open three things side by side before recording: the app (**Scheduled** tab), th
 Handy helpers for the second terminal (used in the steps):
 ```bash
 # emails by status, straight from Postgres (source of truth)
-psql postgres://reachinbox:reachinbox@localhost:5432/reachinbox -c "select to_email, status, scheduled_at, sent_at from emails order by scheduled_at"
+psql postgres://reachinbox:reachinbox@localhost:5433/reachinbox -c "select to_email, status, scheduled_at, sent_at from emails order by scheduled_at"
 # jobs BullMQ is holding for the future, and how many
 redis-cli zcard bull:email-send:delayed
 ```
 The live queue is also visible at **http://localhost:4000/admin/queues** (Delayed / Completed counts).
-
-### 1. Create scheduled emails (~1 min)
-1. **Compose** → **Upload CSV** (the detected addresses appear in **To** with the count) → add a subject and body, optionally attach a file with the paperclip.
-2. Click the **clock** icon → pick a start about **2 minutes from now** → **Done**.
-3. Set **Delay between 2 emails** = `10` (seconds) and leave **Hourly Limit** empty → **Send**.
-4. The **Scheduled** tab now lists every recipient with its own scheduled time, 10 s apart. Show `/admin/queues`: the same number of jobs sit in **Delayed**.
-
-### 2. Restart scenario: stop server → start again → future emails still send (~2 min)
-1. With the emails still in the future, run `redis-cli zcard bull:email-send:delayed` (shows N pending jobs) and the `psql` query above (all `scheduled`).
-2. In the backend terminal press **Ctrl+C**. The API and the embedded worker are now down; the app shows load errors. This is the "server is off" moment for the video.
-3. Re-run `redis-cli zcard bull:email-send:delayed` → the jobs are **still there**; the `psql` rows are still `scheduled`. Nothing lives in the server's memory.
-4. Start it again from `backend/`:
-   ```bash
-   npm run dev
-   ```
-   The log shows `[boot] reconciled N scheduled emails into BullMQ`. That is the self-heal pass: it leaves the jobs that already exist untouched (no duplicates) and only re-creates any that are missing.
-5. Keep watching **Scheduled** → **Sent**: the emails go out **at their original scheduled times**, one every 10 s. Click a sent row to open the email; show the Ethereal link.
-6. Prove no duplicates: `psql` shows exactly one `sent` row per recipient, and each has one message on Ethereal.
-
-Variants worth a sentence in the video:
-* **Restart *after* the scheduled time.** If the server is down when an email comes due, it is *overdue* rather than lost: it is sent as soon as a worker is back (still once).
-* **Hard kill.** `kill -9` the backend process mid-send instead of Ctrl+C. The row is recovered after `STALE_LOCK_MS` (60 s) and sent once; see [Crash recovery](#crash-recovery-hard-killed-worker). A clean Ctrl+C, as above, is instant: in-flight jobs finish before the worker exits.
-
-### 3. (Bonus) Rate limiting and delay under load (~1.5 min)
-Goal: show that a burst is throttled, the hourly cap is enforced per sender, nothing is dropped, and the overflow moves to the next hour.
-
-1. **Compose** → pick **one specific sender** in *From* (not round-robin, so the cap applies to a single inbox) → paste/upload **6–10 recipients** → **Delay between 2 emails** = `0` (everything due now) → **Hourly Limit** = `3` → **Send**.
-2. Watch the backend log and the **Sent** tab: sends leave **~2 s apart** even though all are due at once. That is the queue-wide minimum gap (`MIN_DELAY_BETWEEN_EMAILS_MS`, default 2000 ms), and up to `WORKER_CONCURRENCY` (default 5) jobs are in flight.
-3. After **3** emails the sender hits its hourly limit. The rest are **not failed and not dropped**: they stay in **Scheduled**, now dated at the **start of the next hour** and spaced by the gap, in their original order. In `/admin/queues` they move to **Delayed**.
-4. Show the counter that enforces it (shared in Redis, so it holds across many workers):
-   ```bash
-   redis-cli --scan --pattern 'rl:count:*' | xargs -I{} sh -c 'echo {} $(redis-cli get {})'   # → 3
-   ```
-5. **Slack:** with Slack connected (sidebar card), a message *"Hourly send limit reached for <sender> (3/hour) …"* arrives at the moment of the first overflow, once per sender per hour. Use **Send test** first to prove the channel works. Without Slack connected, nothing is sent and nothing breaks.
-6. Talk track for "1000+ at once": all rows/jobs are created immediately (bulk, in chunks of 500), workers drain them at the throttled rate, and each sender's overflow rolls into successive hour windows in order. The design is documented in [Behavior under load](#behavior-under-load-1000-emails-at-once); tune the pace with the env vars above.
-
-Tip: to keep the demo short, set `MAX_EMAILS_PER_HOUR_PER_SENDER` low in `backend/.env` (or use the per-batch *Hourly Limit* as above) and `MIN_DELAY_BETWEEN_EMAILS_MS=2000`.
 
 ## Assumptions, shortcuts & trade-offs
 

@@ -16,7 +16,7 @@ export const config = {
   backendUrl: str('BACKEND_URL', 'http://localhost:4000'),
   jwtSecret: str('JWT_SECRET', 'dev-secret-change-me'),
 
-  databaseUrl: str('DATABASE_URL', 'postgres://reachinbox:reachinbox@localhost:5432/reachinbox'),
+  databaseUrl: str('DATABASE_URL', 'postgres://reachinbox:reachinbox@localhost:5433/reachinbox'),
   redisUrl: str('REDIS_URL', 'redis://localhost:6379'),
   elasticsearchUrl: str('ELASTICSEARCH_URL', 'http://localhost:9200'),
 
